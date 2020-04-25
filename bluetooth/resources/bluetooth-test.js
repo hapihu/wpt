@@ -9,13 +9,13 @@
  * @param {string} path The path of the script to load.
  * @returns {Promise<void>} Resolves when the script has finished loading.
  */
-function loadScript(path) {
+async function loadScript(path) {
   let script = document.createElement('script');
   let promise = new Promise(resolve => script.onload = resolve);
   script.src = path;
   script.async = false;
   document.head.appendChild(script);
-  return promise;
+  return await promise;
 }
 
 /**
@@ -24,12 +24,11 @@ function loadScript(path) {
  * @returns {Promise<void>} A promise chain that resolves when all scripts have
  *     finished loading.
  */
-function loadScripts(paths) {
-  let chain = Promise.resolve();
+async function loadScripts(paths) {
   for (let path of paths) {
-    chain = chain.then(() => loadScript(path));
+    await loadScript(path);
   }
-  return chain;
+  return;
 }
 
 /**
@@ -42,7 +41,7 @@ function loadScripts(paths) {
  * Bluetooth Blink Web Tests have been migrated into this repository.
  * @returns {Promise<void>} Resolves when Chromium specific setup is complete.
  */
-function performChromiumSetup() {
+async function performChromiumSetup() {
   // Make sure we are actually on Chromium with Mojo enabled.
   if (typeof Mojo === 'undefined') {
     return;
@@ -65,27 +64,26 @@ function performChromiumSetup() {
       '/js-test-resources/bluetooth/bluetooth-fake-adapter.js',
     ];
   }
-  return loadScripts([
-           `${genPrefix}/layout_test_data/mojo/public/js/mojo_bindings.js`,
-           `${genPrefix}/content/test/data/mojo_web_test_helper_test.mojom.js`,
-           `${genPrefix}/device/bluetooth/public/mojom/uuid.mojom.js`,
-           `${genPrefix}/url/mojom/origin.mojom.js`,
-           `${genPrefix}/device/bluetooth/public/mojom/test/fake_bluetooth.mojom.js`,
-           `${genPrefix}/content/shell/common/web_test/fake_bluetooth_chooser.mojom.js`,
-           `${prefix}/web-bluetooth-test.js`,
-         ].concat(extra))
-      // Call setBluetoothFakeAdapter() to clean up any fake adapters left over
-      // by legacy tests.
-      // Legacy tests that use setBluetoothFakeAdapter() sometimes fail to clean
-      // their fake adapter. This is not a problem for these tests because the
-      // next setBluetoothFakeAdapter() will clean it up anyway but it is a
-      // problem for the new tests that do not use setBluetoothFakeAdapter().
-      // TODO(https://crbug.com/569709): Remove once setBluetoothFakeAdapter is
-      // no longer used.
-      .then(
-          () => typeof setBluetoothFakeAdapter === 'undefined' ?
-              undefined :
-              setBluetoothFakeAdapter(''));
+  await loadScripts([
+    `${genPrefix}/layout_test_data/mojo/public/js/mojo_bindings.js`,
+    `${genPrefix}/content/test/data/mojo_web_test_helper_test.mojom.js`,
+    `${genPrefix}/device/bluetooth/public/mojom/uuid.mojom.js`,
+    `${genPrefix}/url/mojom/origin.mojom.js`,
+    `${genPrefix}/device/bluetooth/public/mojom/test/fake_bluetooth.mojom.js`,
+    `${genPrefix}/content/shell/common/web_test/fake_bluetooth_chooser.mojom.js`,
+    `${prefix}/web-bluetooth-test.js`,
+  ].concat(extra));
+
+  // Call setBluetoothFakeAdapter() to clean up any fake adapters left over by
+  // legacy tests. Legacy tests that use setBluetoothFakeAdapter() sometimes
+  // fail to clean their fake adapter. This is not a problem for these tests
+  // because the next setBluetoothFakeAdapter() will clean it up anyway but it
+  // is a problem for the new tests that do not use setBluetoothFakeAdapter().
+  // TODO(https://crbug.com/569709): Remove once setBluetoothFakeAdapter is no
+  // longer used.
+  if (typeof setBluetoothFakeAdapter !== 'undefined') {
+    setBluetoothFakeAdapter('');
+  }
 }
 
 /**
@@ -98,17 +96,14 @@ function performChromiumSetup() {
  * @returns {Promise<void>} Resolves if Web Bluetooth test ran successfully, or
  *     rejects if the test failed.
  */
-function bluetooth_test(test_function, name, properties) {
-  Promise.resolve().then(
-      () => promise_test(
-          t => Promise
-                   .resolve()
-                   // Trigger Chromium-specific setup.
-                   .then(performChromiumSetup)
-                   .then(() => test_function(t))
-                   .then(() => navigator.bluetooth.test.allResponsesConsumed())
-                   .then(consumed => assert_true(consumed)),
-          name, properties));
+async function bluetooth_test(test_function, name, properties) {
+  return await promise_test(async (t) => {
+    // Trigger Chromium-specific setup.
+    await performChromiumSetup();
+    await test_function(t);
+    let consumed = await navigator.bluetooth.test.allResponsesConsumed();
+    assert_true(consumed);
+  }, name, properties);
 }
 
 /**
@@ -120,8 +115,8 @@ function bluetooth_test(test_function, name, properties) {
  * @returns {Promise<void>} Resolves if the document is already completely
  *     loaded or when the 'onload' event is fired.
  */
-function waitForDocumentReady() {
-  return new Promise(resolve => {
+async function waitForDocumentReady() {
+  return await new Promise(resolve => {
     if (document.readyState === 'complete') {
       resolve();
     }
@@ -138,22 +133,21 @@ function waitForDocumentReady() {
  * @returns {Promise<*>} Resolves when the user activation has been simulated
  *     with the result of |callback|.
  */
-function callWithTrustedClick(callback) {
-  return waitForDocumentReady().then(() => new Promise(resolve => {
-                                       let button =
-                                           document.createElement('button');
-                                       button.textContent =
-                                           'click to continue test';
-                                       button.style.display = 'block';
-                                       button.style.fontSize = '20px';
-                                       button.style.padding = '10px';
-                                       button.onclick = () => {
-                                         document.body.removeChild(button);
-                                         resolve(callback());
-                                       };
-                                       document.body.appendChild(button);
-                                       test_driver.click(button);
-                                     }));
+async function callWithTrustedClick(callback) {
+  await waitForDocumentReady();
+  return await new Promise(resolve => {
+    let button = document.createElement('button');
+    button.textContent = 'click to continue test';
+    button.style.display = 'block';
+    button.style.fontSize = '20px';
+    button.style.padding = '10px';
+    button.onclick = () => {
+      document.body.removeChild(button);
+      resolve(callback());
+    };
+    document.body.appendChild(button);
+    test_driver.click(button);
+  });
 }
 
 /**
@@ -161,9 +155,9 @@ function callWithTrustedClick(callback) {
  * @returns {Promise<BluetoothDevice>} Resolves with a Bluetooth device if
  *     successful or rejects with an error.
  */
-function requestDeviceWithTrustedClick() {
+async function requestDeviceWithTrustedClick() {
   let args = arguments;
-  return callWithTrustedClick(
+  return await callWithTrustedClick(
       () => navigator.bluetooth.requestDevice.apply(navigator.bluetooth, args));
 }
 
@@ -172,9 +166,9 @@ function requestDeviceWithTrustedClick() {
  * @returns {Promise<BluetoothLEScan>} Resolves with the properties of the scan
  *     if successful or rejects with an error.
  */
-function requestLEScanWithTrustedClick() {
+async function requestLEScanWithTrustedClick() {
   let args = arguments;
-  return callWithTrustedClick(
+  return await callWithTrustedClick(
       () => navigator.bluetooth.requestLEScan.apply(navigator.bluetooth, args));
 }
 
@@ -205,9 +199,9 @@ function assert_promise_rejects_with_message(promise, expected, description) {
  * Runs the garbage collection.
  * @returns {Promise<void>} Resolves when garbage collection has finished.
  */
-function runGarbageCollection() {
+async function runGarbageCollection() {
   // Run gc() as a promise.
-  return new Promise(function(resolve, reject) {
+  return await new Promise(function(resolve, reject) {
     GCController.collect();
     step_timeout(resolve, 0);
   });
@@ -241,8 +235,8 @@ class EventCatcher {
  * @param {object} options Characteristics about the event listener.
  * @returns {Promise<Event>} Resolves when an event of |type| has fired.
  */
-function eventPromise(target, type, options) {
-  return new Promise(resolve => {
+async function eventPromise(target, type, options) {
+  return await new Promise(resolve => {
     let wrapper = function(event) {
       target.removeEventListener(type, wrapper);
       resolve(event);
@@ -356,7 +350,7 @@ function assert_promise_resolves_after_event(
  * @returns {Promise<void>} Resolves if no events were fired.
  */
 function assert_no_events(object, event_name) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     let event_listener = (e) => {
       object.removeEventListener(event_name, event_listener);
       assert_unreached('Object should not fire an event.');
